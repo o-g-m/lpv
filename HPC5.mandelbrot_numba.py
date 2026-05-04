@@ -1,58 +1,66 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from numba import cuda
+import math
 import time
+from multiprocessing import Pool, cpu_count
 
-@cuda.jit
-def mandel(min_x,max_x,min_y,max_y,img,it):
-    h,w=img.shape
-    x,y=cuda.grid(2)
-    if x<w and y<h:
-        r=min_x+x*(max_x-min_x)/w
-        im=min_y+y*(max_y-min_y)/h
-        zr=zi=0.0; c=0
-        while zr*zr+zi*zi<=4.0 and c<it:
-            t=zr*zr-zi*zi+r
-            zi=2.0*zr*zi+im
-            zr=t; c+=1
-        img[y,x]=c
 
-def cpu(min_x,max_x,min_y,max_y,w,h,it):
-    img=np.zeros((h,w),np.uint8)
-    for y in range(h):
-        for x in range(w):
-            r=min_x+x*(max_x-min_x)/w
-            im=min_y+y*(max_y-min_y)/h
-            zr=zi=0.0; c=0
-            while zr*zr+zi*zi<=4.0 and c<it:
-                t=zr*zr-zi*zi+r
-                zi=2.0*zr*zi+im
-                zr=t; c+=1
-            img[y,x]=c
-    return img
+# -------- DATASET --------
+data = [
+    (1,2,0),(2,3,0),(3,3,0),
+    (8,8,1),(9,10,1),(10,9,1)
+]
 
-w=h=800; it=100
-min_x,max_x=-2.0,1.0
-min_y,max_y=-1.5,1.5
+query = (5,5)
+k = 3
 
-s=time.time()
-cpu_img=cpu(min_x,max_x,min_y,max_y,w,h,it)
-print("CPU Time:",time.time()-s)
 
-img=np.zeros((h,w),np.uint8)
-d=cuda.to_device(img)
+# -------- DISTANCE --------
+def dist(p, q):
+    return math.sqrt((p[0]-q[0])**2 + (p[1]-q[1])**2)
 
-tpb=(16,16)
-bpg=(int(np.ceil(w/tpb[0])),int(np.ceil(h/tpb[1])))
 
-s=time.time()
-mandel[bpg,tpb](min_x,max_x,min_y,max_y,d,it)
-cuda.synchronize()
-print("GPU Time:",time.time()-s)
+# -------- SEQUENTIAL --------
+def knn_seq(data, query, k):
+    d = [(dist((x,y), query), label) for x,y,label in data]
+    d.sort()
+    labels = [l for _,l in d[:k]]
+    return max(set(labels), key=labels.count)
 
-res=d.copy_to_host()
 
-plt.imshow(res,cmap='hot')
-plt.title("Mandelbrot Set (CUDA Numba)")
-plt.colorbar()
-plt.show()
+# -------- PARALLEL --------
+def compute(args):
+    point, query = args
+    return (dist((point[0],point[1]), query), point[2])
+
+
+def knn_par(data, query, k):
+    with Pool(cpu_count()) as p:
+        d = p.map(compute, [(pt,query) for pt in data])
+    d.sort()
+    labels = [l for _,l in d[:k]]
+    return max(set(labels), key=labels.count)
+
+
+# -------- MAIN --------
+if __name__ == "__main__":
+
+    print("Dataset:", data)
+    print("Query Point:", query)
+    print("K =", k)
+
+    # Sequential
+    t = time.time()
+    r1 = knn_seq(data, query, k)
+    t1 = time.time() - t
+
+    print("\nSequential Result:", r1)
+    print("Time:", round(t1,5))
+
+    # Parallel
+    t = time.time()
+    r2 = knn_par(data, query, k)
+    t2 = time.time() - t
+
+    print("\nParallel Result:", r2)
+    print("Time:", round(t2,5))
+
+    print("\nSpeedup:", round(t1/t2,2))
