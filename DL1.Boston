@@ -1,0 +1,71 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+
+
+df = pd.read_csv('1_boston_housing.csv')
+
+print(df.head())
+
+X = df.iloc[:, :-1]   # Features
+y = df.iloc[:, -1]    # Target (house price)
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+scaler = StandardScaler()
+
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+model = Sequential()
+
+# Input + Hidden layers
+model.add(Dense(64, activation='relu', input_shape=(X_train.shape[1],)))
+model.add(Dense(32, activation='relu'))
+
+# Output layer (linear regression)
+model.add(Dense(1))   # No activation → linear output
+
+model.compile(
+    optimizer='adam',
+    loss='mse',        # Mean Squared Error
+    metrics=['mae']    # Mean Absolute Error
+)
+
+history = model.fit(
+    X_train, y_train,
+    epochs=100,
+    batch_size=16,
+    validation_split=0.2
+)
+
+loss, mae = model.evaluate(X_test, y_test)
+print("Test Loss (MSE):", loss)
+print("Test MAE:", mae)
+
+y_pred = model.predict(X_test)
+
+# Compare actual vs predicted
+comparison = pd.DataFrame({
+    'Actual': y_test.values,
+    'Predicted': y_pred.flatten()
+})
+
+print(comparison.head())
+
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+plt.title("Model Training Performance")
+plt.show()
